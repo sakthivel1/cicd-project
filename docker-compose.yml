@@ -2,9 +2,6 @@ version: '3.8'
 
 services:
 
-  # ─────────────────────────
-  # PostgreSQL Database
-  # ─────────────────────────
   db:
     image: postgres:15-alpine
     container_name: cicd-db
@@ -24,9 +21,6 @@ services:
     networks:
       - cicd-network
 
-  # ─────────────────────────
-  # Spring Boot Backend
-  # ─────────────────────────
   backend:
     build:
       context: ./backend
@@ -38,23 +32,22 @@ services:
       DB_NAME: itemsdb
       DB_USER: postgres
       DB_PASSWORD: postgres
+      SPRING_JPA_HIBERNATE_DDL_AUTO: update
     ports:
       - "8080:8080"
     depends_on:
       db:
         condition: service_healthy
+    restart: on-failure
     healthcheck:
       test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:8080/health || exit 1"]
       interval: 30s
       timeout: 10s
-      retries: 3
-      start_period: 40s
+      retries: 5
+      start_period: 60s
     networks:
       - cicd-network
 
-  # ─────────────────────────
-  # Next.js Frontend
-  # ─────────────────────────
   frontend:
     build:
       context: ./frontend
@@ -70,15 +63,9 @@ services:
     networks:
       - cicd-network
 
-# ─────────────────────────
-# Persistent storage for DB
-# ─────────────────────────
 volumes:
   postgres_data:
 
-# ─────────────────────────
-# Internal network
-# ─────────────────────────
 networks:
   cicd-network:
     driver: bridge
