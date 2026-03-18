@@ -1,4 +1,4 @@
-package com.example.demo;
+﻿package com.example.demo;
 
 import com.example.demo.model.Item;
 import com.example.demo.repository.ItemRepository;
@@ -28,9 +28,7 @@ class ItemServiceTest {
     void getAllItems_returnsListOfItems() {
         Item item = new Item("Test Item", "Test Description");
         when(itemRepository.findAll()).thenReturn(List.of(item));
-
         List<Item> result = itemService.getAllItems();
-
         assertEquals(1, result.size());
         assertEquals("Test Item", result.get(0).getName());
         verify(itemRepository, times(1)).findAll();
@@ -40,9 +38,7 @@ class ItemServiceTest {
     void createItem_savesAndReturnsItem() {
         Item item = new Item("New Item", "New Description");
         when(itemRepository.save(item)).thenReturn(item);
-
         Item result = itemService.createItem(item);
-
         assertNotNull(result);
         assertEquals("New Item", result.getName());
         verify(itemRepository, times(1)).save(item);
