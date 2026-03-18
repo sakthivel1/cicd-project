@@ -1,0 +1,84 @@
+version: '3.8'
+
+services:
+
+  # ─────────────────────────
+  # PostgreSQL Database
+  # ─────────────────────────
+  db:
+    image: postgres:15-alpine
+    container_name: cicd-db
+    environment:
+      POSTGRES_DB: itemsdb
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - cicd-network
+
+  # ─────────────────────────
+  # Spring Boot Backend
+  # ─────────────────────────
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: cicd-backend
+    environment:
+      DB_HOST: db
+      DB_PORT: 5432
+      DB_NAME: itemsdb
+      DB_USER: postgres
+      DB_PASSWORD: postgres
+    ports:
+      - "8080:8080"
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:8080/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - cicd-network
+
+  # ─────────────────────────
+  # Next.js Frontend
+  # ─────────────────────────
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: cicd-frontend
+    environment:
+      NEXT_PUBLIC_API_URL: http://backend:8080
+    ports:
+      - "3000:3000"
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks:
+      - cicd-network
+
+# ─────────────────────────
+# Persistent storage for DB
+# ─────────────────────────
+volumes:
+  postgres_data:
+
+# ─────────────────────────
+# Internal network
+# ─────────────────────────
+networks:
+  cicd-network:
+    driver: bridge
