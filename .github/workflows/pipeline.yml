@@ -140,15 +140,16 @@ jobs:
         run: |
           docker compose up -d --build backend
           echo "Waiting for backend to start..."
-          sleep 40
+          sleep 50
           docker compose ps
           echo "=== BACKEND LOGS ==="
           docker compose logs backend
-
+          
       - name: Check backend health manually
         run: |
-          curl -f http://localhost:8080/health || (docker compose logs backend && exit 1)
-
+          echo "Waiting 60s for backend to fully start..."
+          sleep 60
+          curl -f http://localhost:8080/health && echo "✅ Backend healthy!" || (docker compose logs backend && exit 1)
       - name: Start frontend
         run: |
           docker compose up -d --build frontend
