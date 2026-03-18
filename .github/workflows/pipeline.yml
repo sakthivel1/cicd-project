@@ -1,0 +1,278 @@
+name: CI/CD Pipeline
+
+# WHEN does this pipeline trigger?
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+# Environment variables available to ALL jobs
+env:
+  AWS_REGION: us-east-1
+  ECR_REPOSITORY_BACKEND: cicd-backend
+  ECR_REPOSITORY_FRONTEND: cicd-frontend
+  ECS_CLUSTER: cicd-cluster
+  ECS_SERVICE_BACKEND: cicd-backend-service
+  ECS_SERVICE_FRONTEND: cicd-frontend-service
+
+jobs:
+
+# ─────────────────────────────────────────
+# JOB 1: DEV
+# ─────────────────────────────────────────
+  dev:
+    name: Dev - Build and Test
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:15-alpine
+        env:
+          POSTGRES_DB: itemsdb
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+
+      # Step 1: Get the code
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # Step 2: Setup Java
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          cache: maven
+
+      # Step 3: Backend lint check
+      - name: Backend - Checkstyle lint
+        working-directory: backend
+        run: mvn checkstyle:check -B || true
+
+      # Step 4: Backend unit tests
+      - name: Backend - Run unit tests
+        working-directory: backend
+        env:
+          DB_HOST: localhost
+          DB_PORT: 5432
+          DB_NAME: itemsdb
+          DB_USER: postgres
+          DB_PASSWORD: postgres
+        run: mvn test -B
+
+      # Step 5: Upload test results as artifact
+      - name: Upload backend test results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: backend-test-results
+          path: backend/target/surefire-reports/
+
+      # Step 6: Build backend jar
+      - name: Backend - Build jar
+        working-directory: backend
+        run: mvn clean package -DskipTests -B
+
+      # Step 7: Setup Node.js
+      - name: Set up Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      # Step 8: Install frontend dependencies
+      - name: Frontend - Install dependencies
+        working-directory: frontend
+        run: npm ci
+
+      # Step 9: Frontend lint
+      - name: Frontend - Lint
+        working-directory: frontend
+        run: npm run lint || true
+
+      # Step 10: Frontend unit tests
+      - name: Frontend - Run unit tests
+        working-directory: frontend
+        run: npm test -- --watchAll=false --passWithNoTests
+
+      # Step 11: Build frontend
+      - name: Frontend - Build
+        working-directory: frontend
+        run: npm run build
+
+      # Step 12: Build Docker images (verify they build correctly)
+      - name: Build backend Docker image
+        run: docker build -t cicd-backend:test ./backend
+
+      - name: Build frontend Docker image
+        run: docker build -t cicd-frontend:test ./frontend
+
+# ─────────────────────────────────────────
+# JOB 2: QA
+# ─────────────────────────────────────────
+  qa:
+    name: QA - Integration Tests
+    runs-on: ubuntu-latest
+    needs: dev        # ← Only runs if dev job passes
+
+    steps:
+
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # Start full stack with docker compose
+      - name: Start full stack
+        run: docker compose up -d --build
+
+      # Wait for backend to be healthy
+      - name: Wait for backend health
+        run: |
+          echo "Waiting for backend to be ready..."
+          for i in {1..30}; do
+            if curl -f http://localhost:8080/health; then
+              echo "Backend is ready!"
+              break
+            fi
+            echo "Attempt $i/30 - waiting..."
+            sleep 10
+          done
+
+      # Integration test 1 — health endpoint
+      - name: Integration test - health check
+        run: |
+          RESPONSE=$(curl -s http://localhost:8080/health)
+          echo "Response: $RESPONSE"
+          echo $RESPONSE | grep -q "UP" && echo "✅ Health check passed" || exit 1
+
+      # Integration test 2 — get items (empty list is fine)
+      - name: Integration test - GET /api/items
+        run: |
+          RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8080/api/items)
+          echo "Status code: $RESPONSE"
+          [ "$RESPONSE" = "200" ] && echo "✅ GET /api/items passed" || exit 1
+
+      # Integration test 3 — post item
+      - name: Integration test - POST /api/items
+        run: |
+          RESPONSE=$(curl -s -X POST http://localhost:8080/api/items \
+            -H "Content-Type: application/json" \
+            -d '{"name":"Test Item","description":"Integration test item"}')
+          echo "Response: $RESPONSE"
+          echo $RESPONSE | grep -q "Test Item" && echo "✅ POST /api/items passed" || exit 1
+
+      # Integration test 4 — frontend is up
+      - name: Integration test - Frontend is running
+        run: |
+          RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:3000)
+          echo "Status code: $RESPONSE"
+          [ "$RESPONSE" = "200" ] && echo "✅ Frontend passed" || exit 1
+
+      # Save docker logs as artifacts (useful for debugging)
+      - name: Save docker logs
+        if: always()
+        run: |
+          docker compose logs backend > backend-logs.txt
+          docker compose logs frontend > frontend-logs.txt
+          docker compose logs db > db-logs.txt
+
+      - name: Upload docker logs
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: docker-logs
+          path: |
+            backend-logs.txt
+            frontend-logs.txt
+            db-logs.txt
+
+      - name: Stop stack
+        if: always()
+        run: docker compose down
+
+# ─────────────────────────────────────────
+# JOB 3: STAGE (Deploy to AWS)
+# ─────────────────────────────────────────
+  stage:
+    name: Stage - Deploy to AWS
+    runs-on: ubuntu-latest
+    needs: qa           # ← Only runs if qa job passes
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+
+    steps:
+
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # Login to AWS using OIDC (no long-lived keys!)
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      # Login to Amazon ECR
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      # Build and push backend image to ECR
+      - name: Build and push backend image
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        run: |
+          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY_BACKEND:${{ github.sha }} ./backend
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY_BACKEND:${{ github.sha }}
+          echo "image=$ECR_REGISTRY/$ECR_REPOSITORY_BACKEND:${{ github.sha }}" >> $GITHUB_OUTPUT
+
+      # Build and push frontend image to ECR
+      - name: Build and push frontend image
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        run: |
+          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY_FRONTEND:${{ github.sha }} ./frontend
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY_FRONTEND:${{ github.sha }}
+
+      # Deploy to ECS
+      - name: Deploy backend to ECS
+        run: |
+          aws ecs update-service \
+            --cluster ${{ env.ECS_CLUSTER }} \
+            --service ${{ env.ECS_SERVICE_BACKEND }} \
+            --force-new-deployment \
+            --region ${{ env.AWS_REGION }}
+
+      - name: Deploy frontend to ECS
+        run: |
+          aws ecs update-service \
+            --cluster ${{ env.ECS_CLUSTER }} \
+            --service ${{ env.ECS_SERVICE_FRONTEND }} \
+            --force-new-deployment \
+            --region ${{ env.AWS_REGION }}
+
+      # Wait for deployment to complete
+      - name: Wait for backend deployment
+        run: |
+          aws ecs wait services-stable \
+            --cluster ${{ env.ECS_CLUSTER }} \
+            --services ${{ env.ECS_SERVICE_BACKEND }} \
+            --region ${{ env.AWS_REGION }}
+          echo "✅ Backend deployed successfully!"
+
+      - name: Wait for frontend deployment
+        run: |
+          aws ecs wait services-stable \
+            --cluster ${{ env.ECS_CLUSTER }} \
+            --services ${{ env.ECS_SERVICE_FRONTEND }} \
+            --region ${{ env.AWS_REGION }}
+          echo "✅ Frontend deployed successfully!"
