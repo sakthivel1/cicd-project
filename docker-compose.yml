@@ -20,19 +20,19 @@ services:
       retries: 5
     networks:
       - cicd-network
-
-  backend:
+      
+ backend:
     build:
       context: ./backend
       dockerfile: Dockerfile
     container_name: cicd-backend
     environment:
-      DB_HOST: db
-      DB_PORT: 5432
-      DB_NAME: itemsdb
-      DB_USER: postgres
-      DB_PASSWORD: postgres
-      SPRING_JPA_HIBERNATE_DDL_AUTO: update
+      - DB_HOST=db
+      - DB_PORT=5432
+      - DB_NAME=itemsdb
+      - DB_USER=postgres
+      - DB_PASSWORD=postgres
+      - SPRING_JPA_HIBERNATE_DDL_AUTO=update
     ports:
       - "8080:8080"
     depends_on:
