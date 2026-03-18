@@ -129,43 +129,43 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      # Start full stack with docker compose
-      - name: Start full stack
+      - name: Start database only first
         run: |
-          docker compose up -d --build
-          echo "Waiting 30s for services to initialize..."
-          sleep 30
+          docker compose up -d db
+          echo "Waiting for database..."
+          sleep 20
           docker compose ps
+
+      - name: Start backend
+        run: |
+          docker compose up -d --build backend
+          echo "Waiting for backend to start..."
+          sleep 40
+          docker compose ps
+          echo "=== BACKEND LOGS ==="
           docker compose logs backend
 
-      # Wait for backend to be healthy
-      - name: Wait for backend health
+      - name: Check backend health manually
         run: |
-          echo "Waiting for backend to be ready..."
-          for i in {1..30}; do
-            if curl -f http://localhost:8080/health; then
-              echo "Backend is ready!"
-              break
-            fi
-            echo "Attempt $i/30 - waiting..."
-            sleep 10
-          done
+          curl -f http://localhost:8080/health || (docker compose logs backend && exit 1)
 
-      # Integration test 1 — health endpoint
+      - name: Start frontend
+        run: |
+          docker compose up -d --build frontend
+          sleep 20
+
       - name: Integration test - health check
         run: |
           RESPONSE=$(curl -s http://localhost:8080/health)
           echo "Response: $RESPONSE"
           echo $RESPONSE | grep -q "UP" && echo "✅ Health check passed" || exit 1
 
-      # Integration test 2 — get items (empty list is fine)
       - name: Integration test - GET /api/items
         run: |
           RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8080/api/items)
           echo "Status code: $RESPONSE"
           [ "$RESPONSE" = "200" ] && echo "✅ GET /api/items passed" || exit 1
 
-      # Integration test 3 — post item
       - name: Integration test - POST /api/items
         run: |
           RESPONSE=$(curl -s -X POST http://localhost:8080/api/items \
@@ -174,20 +174,18 @@ jobs:
           echo "Response: $RESPONSE"
           echo $RESPONSE | grep -q "Test Item" && echo "✅ POST /api/items passed" || exit 1
 
-      # Integration test 4 — frontend is up
       - name: Integration test - Frontend is running
         run: |
           RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:3000)
           echo "Status code: $RESPONSE"
           [ "$RESPONSE" = "200" ] && echo "✅ Frontend passed" || exit 1
 
-      # Save docker logs as artifacts (useful for debugging)
       - name: Save docker logs
         if: always()
         run: |
-          docker compose logs backend > backend-logs.txt
-          docker compose logs frontend > frontend-logs.txt
-          docker compose logs db > db-logs.txt
+          docker compose logs backend > backend-logs.txt 2>&1
+          docker compose logs frontend > frontend-logs.txt 2>&1
+          docker compose logs db > db-logs.txt 2>&1
 
       - name: Upload docker logs
         uses: actions/upload-artifact@v4
@@ -202,6 +200,7 @@ jobs:
       - name: Stop stack
         if: always()
         run: docker compose down
+
 
 # ─────────────────────────────────────────
 # JOB 3: STAGE (Deploy to AWS)
