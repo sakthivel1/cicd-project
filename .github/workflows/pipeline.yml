@@ -119,41 +119,54 @@ jobs:
 # ─────────────────────────────────────────
 # JOB 2: QA
 # ─────────────────────────────────────────
-  qa:
+ qa:
     name: QA - Integration Tests
     runs-on: ubuntu-latest
-    needs: dev        # ← Only runs if dev job passes
+    needs: dev
 
     steps:
 
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Start database only first
+      - name: Start database
         run: |
           docker compose up -d db
-          echo "Waiting for database..."
-          sleep 20
+          echo "Waiting for database to be ready..."
+          sleep 15
           docker compose ps
 
-      - name: Start backend
+      - name: Build and start backend
         run: |
           docker compose up -d --build backend
-          echo "Waiting for backend to start..."
-          sleep 50
-          docker compose ps
-          echo "=== BACKEND LOGS ==="
-          docker compose logs backend
-          
-      - name: Check backend health manually
-        run: |
-          echo "Waiting 60s for backend to fully start..."
+          echo "Backend starting - waiting 60 seconds..."
           sleep 60
-          curl -f http://localhost:8080/health && echo "✅ Backend healthy!" || (docker compose logs backend && exit 1)
+          docker compose ps
+          docker compose logs backend
+
+      - name: Wait for backend health
+        run: |
+          echo "Checking backend health from runner..."
+          for i in $(seq 1 10); do
+            STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8080/health || echo "000")
+            echo "Attempt $i: HTTP $STATUS"
+            if [ "$STATUS" = "200" ]; then
+              echo "✅ Backend is healthy!"
+              break
+            fi
+            if [ "$i" = "10" ]; then
+              echo "❌ Backend failed to become healthy"
+              docker compose logs backend
+              exit 1
+            fi
+            sleep 10
+          done
+
       - name: Start frontend
         run: |
           docker compose up -d --build frontend
           sleep 20
+          docker compose ps
 
       - name: Integration test - health check
         run: |
@@ -200,8 +213,7 @@ jobs:
 
       - name: Stop stack
         if: always()
-        run: docker compose down
-
+        run: docker compose down -v
 
 # ─────────────────────────────────────────
 # JOB 3: STAGE (Deploy to AWS)
