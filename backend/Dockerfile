@@ -42,8 +42,8 @@ USER appuser
 EXPOSE 8080
 
 # Health check — Docker monitors this
-HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=5 \
-  CMD curl -f http://localhost:8080/health || exit 1
+HEALTHCHECK --interval=15s --timeout=5s --start-period=30s --retries=10 \
+  CMD sh -c 'exec 3<>/dev/tcp/localhost/8080 && echo -e "GET /health HTTP/1.0\r\n" >&3 && cat <&3 | grep -q "UP"' || exit 1
   
 # Start the app
 ENTRYPOINT ["java", "-jar", "app.jar"]
