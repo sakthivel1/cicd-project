@@ -21,7 +21,7 @@ services:
     networks:
       - cicd-network
 
- backend:
+  backend:
     build:
       context: ./backend
       dockerfile: Dockerfile
@@ -38,15 +38,9 @@ services:
       db:
         condition: service_healthy
     restart: on-failure
-    healthcheck:
-      test: ["CMD-SHELL", "exec 3<>/dev/tcp/localhost/8080 && echo -e 'GET /health HTTP/1.0\\r\\n' >&3 && cat <&3 | grep -q 'UP' || exit 1"]
-      interval: 15s
-      timeout: 10s
-      retries: 10
-      start_period: 30s
     networks:
       - cicd-network
-      
+
   frontend:
     build:
       context: ./frontend
@@ -57,8 +51,7 @@ services:
     ports:
       - "3000:3000"
     depends_on:
-      backend:
-        condition: service_healthy
+      - backend
     networks:
       - cicd-network
 
