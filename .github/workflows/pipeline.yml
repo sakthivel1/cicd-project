@@ -130,28 +130,21 @@ jobs:
 
       - name: Wait for backend health
         run: |
-          echo "=== NETWORK DEBUG ==="
-          docker network ls
-          docker inspect cicd-backend | grep -A 10 "Ports"
-          echo "=== CURL TEST ==="
-          curl -v http://localhost:8080/health || true
-          echo "=== DOCKER EXEC TEST ==="
-          docker exec cicd-backend sh -c "wget -q -O- http://localhost:8080/health" || true
-          echo "=== RETRY LOOP ==="
+          echo "Checking backend health..."
           for i in $(seq 1 15); do
             STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8080/health 2>/dev/null || echo "000")
             echo "Attempt $i/15: HTTP $STATUS"
             if [ "$STATUS" = "200" ]; then
               echo "Backend is healthy!"
+              curl -s http://localhost:8080/health
               exit 0
             fi
             sleep 10
           done
-          echo "Backend failed - showing full debug"
-          docker ps -a
+          echo "Backend failed - last curl attempt:"
+          curl -v http://localhost:8080/health || true
           docker compose logs backend
           exit 1
-
       - name: Start frontend
         run: |
           docker compose up -d --build frontend
