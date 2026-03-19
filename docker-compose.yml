@@ -28,13 +28,11 @@ services:
       - DB_NAME=itemsdb
       - DB_USER=postgres
       - DB_PASSWORD=postgres
-    ports:
-      - "8080:8080"
+    network_mode: host
     depends_on:
       db:
         condition: service_healthy
     restart: on-failure
-    network_mode: host
 
   frontend:
     build:
@@ -43,10 +41,12 @@ services:
     container_name: cicd-frontend
     environment:
       - NEXT_PUBLIC_API_URL=http://localhost:8080
-    ports:
-      - "3000:3000"
+    network_mode: host
     depends_on:
       - backend
 
 volumes:
   postgres_data:
+```
+
+Commit message: `fix: remove ports when using host network mode`
