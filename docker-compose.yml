@@ -11,15 +11,11 @@ services:
       - POSTGRES_PASSWORD=postgres
     ports:
       - "5432:5432"
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 10s
       timeout: 5s
       retries: 5
-    networks:
-      - cicd-network
 
   backend:
     build:
@@ -27,7 +23,7 @@ services:
       dockerfile: Dockerfile
     container_name: cicd-backend
     environment:
-      - DB_HOST=db
+      - DB_HOST=localhost
       - DB_PORT=5432
       - DB_NAME=itemsdb
       - DB_USER=postgres
@@ -38,8 +34,7 @@ services:
       db:
         condition: service_healthy
     restart: on-failure
-    networks:
-      - cicd-network
+    network_mode: host
 
   frontend:
     build:
@@ -47,17 +42,11 @@ services:
       dockerfile: Dockerfile
     container_name: cicd-frontend
     environment:
-      - NEXT_PUBLIC_API_URL=http://backend:8080
+      - NEXT_PUBLIC_API_URL=http://localhost:8080
     ports:
       - "3000:3000"
     depends_on:
       - backend
-    networks:
-      - cicd-network
 
 volumes:
   postgres_data:
-
-networks:
-  cicd-network:
-    driver: bridge
