@@ -122,11 +122,22 @@ jobs:
           echo "Waiting 60s for backend to start..."
           sleep 60
           docker compose ps
+          echo "=== BACKEND LOGS ==="
           docker compose logs backend
+          echo "=== PORT CHECK ==="
+          docker ps
+          netstat -tlnp | grep 8080 || echo "Port 8080 not bound"
 
       - name: Wait for backend health
         run: |
-          echo "Checking backend health..."
+          echo "=== NETWORK DEBUG ==="
+          docker network ls
+          docker inspect cicd-backend | grep -A 10 "Ports"
+          echo "=== CURL TEST ==="
+          curl -v http://localhost:8080/health || true
+          echo "=== DOCKER EXEC TEST ==="
+          docker exec cicd-backend sh -c "wget -q -O- http://localhost:8080/health" || true
+          echo "=== RETRY LOOP ==="
           for i in $(seq 1 15); do
             STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8080/health 2>/dev/null || echo "000")
             echo "Attempt $i/15: HTTP $STATUS"
@@ -136,7 +147,8 @@ jobs:
             fi
             sleep 10
           done
-          echo "Backend failed after 15 attempts"
+          echo "Backend failed - showing full debug"
+          docker ps -a
           docker compose logs backend
           exit 1
 
