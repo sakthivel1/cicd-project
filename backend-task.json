@@ -1,0 +1,36 @@
+{
+  "family": "cicd-backend",
+  "networkMode": "awsvpc",
+  "requiresCompatibilities": ["FARGATE"],
+  "cpu": "256",
+  "memory": "512",
+  "executionRoleArn": "arn:aws:iam::457591021188:role/ecsTaskExecutionRole",
+  "containerDefinitions": [
+    {
+      "name": "backend",
+      "image": "457591021188.dkr.ecr.us-east-1.amazonaws.com/cicd-backend:latest",
+      "portMappings": [
+        {
+          "containerPort": 8080,
+          "protocol": "tcp"
+        }
+      ],
+      "environment": [
+        {"name": "DB_HOST", "value": "localhost"},
+        {"name": "DB_PORT", "value": "5432"},
+        {"name": "DB_NAME", "value": "itemsdb"},
+        {"name": "DB_USER", "value": "postgres"},
+        {"name": "DB_PASSWORD", "value": "postgres"}
+      ],
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "/ecs/cicd-backend",
+          "awslogs-region": "us-east-1",
+          "awslogs-stream-prefix": "ecs",
+          "awslogs-create-group": "true"
+        }
+      }
+    }
+  ]
+}

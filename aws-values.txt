@@ -1,0 +1,4 @@
+ACCOUNT_ID=457591021188
+REGION=us-east-1
+VPC_ID=vpc-0a6196a3a10d88a3c
+SUBNETS=subnet-0a1bf782aa0ea77ab	subnet-0d4f2afdd8d4c030b	subnet-0de04a06118f08a79	subnet-0deb8caa70ea281dc	subnet-0cbd179de7a07d17e	subnet-00a1d671674afba3d
