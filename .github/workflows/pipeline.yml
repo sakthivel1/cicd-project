@@ -213,7 +213,7 @@ jobs:
     name: Stage - Deploy to AWS
     runs-on: ubuntu-latest
     needs: qa
-    if: false
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
 
     steps:
       - name: Checkout code
